@@ -3,16 +3,18 @@ import APP_HTML from './app.html';
 import { ICON_192, ICON_512 } from './icons.js';
 
 const CATS = ['food', 'travel', 'shop', 'bill', 'fun', 'health', 'edu', 'family', 'other'];
-const json = (data, status = 200) => new Response(JSON.stringify(data), {
+const jsonResp = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
 });
+const json = jsonResp;
 const fmt = (n) => Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
-function authed(req, env) {
+function authed(req, env, url) {
   if (!env.APP_KEY) return false;
   const h = req.headers.get('authorization') || '';
-  const key = h.replace(/^Bearer\s+/i, '').trim();
+  // header for the app; ?k= for one-link Shortcuts
+  const key = (h.replace(/^Bearer\s+/i, '').trim()) || (url.searchParams.get('k') || '').trim();
   if (key.length !== env.APP_KEY.length) return false;
   let diff = 0;
   for (let i = 0; i < key.length; i++) diff |= key.charCodeAt(i) ^ env.APP_KEY.charCodeAt(i);
@@ -71,13 +73,16 @@ async function readAll(env) {
   };
 }
 
-async function capture(req, env) {
+async function capture(req, env, url) {
   let body;
   const ct = req.headers.get('content-type') || '';
-  if (ct.includes('application/json')) body = await req.json();
+  const isJson = ct.includes('application/json');
+  if (isJson) body = await req.json();
   else body = { text: await req.text() };
   const text = String(body.text || '').slice(0, 4000);
-  const source = body.source === 'slip' ? 'slip' : 'sms';
+  const source = (body.source || url.searchParams.get('source')) === 'slip' ? 'slip' : 'sms';
+  // a Shortcut that posts the raw text gets a plain sentence back, ready for "Show Notification"
+  const json = isJson ? jsonResp : (d) => new Response(d.message || d.error || '', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
   const p = parseCapture(text, source, { app: body.app || body.sender || '' });
   if (p.kind !== 'expense') {
     const msg = p.kind === 'income' ? 'ไม่บันทึก: เป็นเงินเข้า' : `ไม่บันทึก: ${p.reason}`;
@@ -114,7 +119,7 @@ async function api(req, env, url) {
   const path = url.pathname.replace(/^\/api/, '');
   const m = req.method;
   if (path === '/data' && m === 'GET') return json(await readAll(env));
-  if (path === '/capture' && m === 'POST') return capture(req, env);
+  if (path === '/capture' && m === 'POST') return capture(req, env, url);
 
   if (path === '/expenses' && m === 'POST') {
     const saved = await insertExpense(env, cleanExpense(await req.json()));
@@ -195,7 +200,7 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         if (!env.DB) return json({ ok: false, error: 'ยังไม่ได้เชื่อมฐานข้อมูล (D1 binding ชื่อ DB)' }, 500);
         if (!env.APP_KEY) return json({ ok: false, error: 'ยังไม่ได้ตั้งรหัสแอป (APP_KEY)' }, 500);
-        if (!authed(req, env)) return json({ ok: false, error: 'รหัสแอปไม่ถูกต้อง' }, 401);
+        if (!authed(req, env, url)) return json({ ok: false, error: 'รหัสแอปไม่ถูกต้อง' }, 401);
         return await api(req, env, url);
       }
       if (url.pathname === '/manifest.webmanifest') {

@@ -47,12 +47,20 @@ console.log('     shortcut sees:', slip.body.message);
 const inc = await call('POST', '/api/capture', { text: '16/10/69 13:00 บชX123456X เงินเข้า 500.00บ', source: 'sms' });
 check('income skipped', inc.body.status === 'skipped');
 const plain = await worker.fetch(new Request('https://x.test/api/capture', { method: 'POST', headers: { authorization: 'Bearer ' + env.APP_KEY, 'content-type': 'text/plain' }, body: 'SCB เงิน 1,500.00 บ. ออกจากบ/ช x1234 วันที่ 15/10/2569@18:05 ใช้ได้ 3,210.50 บ.' }), env);
-check('plain-text capture', (await plain.json()).status === 'saved');
+check('plain-text capture', (await plain.text()).startsWith('บันทึก ฿1,500'));
+
+// one-link Shortcut: key + source in the URL, raw text body, plain-text answer
+const one = await worker.fetch(new Request('https://x.test/api/capture?k=' + env.APP_KEY + '&source=sms', { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: '16/10/69 20:10 บชX123456X เงินออก 120.00บ คงเหลือ 999.00บ' }), env);
+const oneTxt = await one.text();
+check('one-link capture -> plain text', one.status === 200 && oneTxt.startsWith('บันทึก ฿120'), oneTxt);
+console.log('     notification shows:', oneTxt);
+const bad = await worker.fetch(new Request('https://x.test/api/capture?k=wrong', { method: 'POST', body: 'x' }), env);
+check('one-link wrong key rejected', bad.status === 401);
 
 const man = await call('POST', '/api/expenses', { amount: 45, app: 'เงินสด', cat: 'food', date: '2026-10-16', note: 'กาแฟ' });
 check('manual add', man.body.ok);
 let data = (await call('GET', '/api/data')).body;
-check('data has 3 items', data.items.length === 3, JSON.stringify(data.items));
+check('data has 4 items', data.items.length === 4, JSON.stringify(data.items));
 const kb = data.items.find((x) => x.amount === 60);
 check('sms row enriched by slip', kb && kb.app === 'K PLUS' && kb.payee.includes('ก๋วยเตี๋ยว') && kb.cat === 'food', JSON.stringify(kb));
 

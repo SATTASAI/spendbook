@@ -302,36 +302,29 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
 <div class="overlay" id="sheetSettings" hidden>
   <div class="sheet">
     <div class="sheet-head"><h2>ตั้งค่า</h2><button type="button" class="x" data-close aria-label="ปิด">✕</button></div>
-    <div class="field"><span class="lbl">ที่อยู่สำหรับคำสั่งลัด (Shortcuts)</span>
-      <div class="copyrow"><input id="capUrl" readonly><button type="button" class="act" data-copy="capUrl">คัดลอก</button></div></div>
-    <div class="field"><span class="lbl">รหัสแอป (ใช้ใส่ในคำสั่งลัด)</span>
-      <div class="copyrow"><input id="authVal" readonly><button type="button" class="act" data-copy="authVal">คัดลอก</button></div></div>
+    <div class="field"><span class="lbl">ลิงก์สำหรับ SMS</span>
+      <div class="copyrow"><input id="smsUrl" readonly><button type="button" class="act" data-copy="smsUrl">คัดลอก</button></div></div>
+    <div class="field"><span class="lbl">ลิงก์สำหรับสลิป</span>
+      <div class="copyrow"><input id="slipUrl" readonly><button type="button" class="act" data-copy="slipUrl">คัดลอก</button></div></div>
+    <p class="hint" style="margin:0">ลิงก์มีรหัสแอปอยู่ในตัว อย่าส่งให้คนอื่น</p>
 
     <details class="howto">
-      <summary>ตั้งคำสั่งลัด: บันทึกจาก SMS ธนาคารอัตโนมัติ</summary>
+      <summary>ตั้งคำสั่งลัด SMS (3 ขั้น)</summary>
       <ol>
-        <li>เปิดแอป <b>คำสั่งลัด</b> → แท็บ <b>ระบบอัตโนมัติ</b> → แตะ <b>+</b> → เลือก <b>ข้อความ</b></li>
-        <li><b>ผู้ส่ง:</b> เลือกชื่อผู้ส่ง SMS ของธนาคาร (เช่น KBank, SCB) เลือก <b>เรียกใช้ทันที</b> แล้วแตะ <b>ถัดไป</b> → <b>ระบบอัตโนมัติเปล่า</b></li>
-        <li>เพิ่มการทำงาน <b>รับเนื้อหาของ URL</b> ใส่ URL ด้านบน แตะ ▸ เพื่อขยาย:
-          <br>• วิธีการ: <b>POST</b>
-          <br>• ส่วนหัว: เพิ่ม <code>Authorization</code> = รหัสแอปด้านบน
-          <br>• เนื้อหาคำขอ: <b>JSON</b> เพิ่มช่อง <code>text</code> = <i>อินพุตคำสั่งลัด</i> (เลือก <b>เนื้อหา</b>), <code>source</code> = <code>sms</code>, <code>sender</code> = <i>อินพุตคำสั่งลัด</i> (เลือก <b>ผู้ส่ง</b>)</li>
-        <li>เพิ่ม <b>รับค่าพจนานุกรม</b> คีย์ <code>message</code> แล้วเพิ่ม <b>แสดงการแจ้งเตือน</b> ให้แสดงค่านั้น</li>
-        <li>ทำซ้ำข้อ 1–4 สำหรับธนาคารอื่นที่ใช้</li>
+        <li>แอป <b>คำสั่งลัด</b> → <b>ระบบอัตโนมัติ</b> → <b>+</b> → <b>ข้อความ</b> → <b>ข้อความมี</b> พิมพ์ <code>คงเหลือ</code> → เลือก <b>เรียกใช้ทันที</b> → <b>ถัดไป</b> → <b>ระบบอัตโนมัติเปล่าใหม่</b></li>
+        <li>เพิ่ม <b>รับเนื้อหาของ URL</b> → วาง <b>ลิงก์สำหรับ SMS</b> → แตะ <b>&gt;</b> → วิธีการ <b>POST</b> → เนื้อหาคำขอ <b>ไฟล์</b> → เลือก <b>อินพุตคำสั่งลัด</b></li>
+        <li>(ไม่บังคับ) เพิ่ม <b>แสดงการแจ้งเตือน</b> เพื่อดูว่าบันทึกอะไรไป</li>
       </ol>
-      <p class="hint">ไม่บันทึก SMS เงินเข้าและรหัส OTP · ถ้า SMS กับสลิปเป็นรายการเดียวกัน ระบบจะรวมให้ ไม่นับซ้ำ</p>
     </details>
 
     <details class="howto">
-      <summary>ตั้งคำสั่งลัด: แชร์สลิปเข้าแอป</summary>
+      <summary>ตั้งคำสั่งลัดสลิป (3 ขั้น)</summary>
       <ol>
-        <li>แอป <b>คำสั่งลัด</b> → แท็บ <b>คำสั่งลัด</b> → <b>+</b> ตั้งชื่อ <b>บันทึกสลิป</b></li>
-        <li>แตะ ⓘ → เปิด <b>แสดงในแผ่นงานแชร์</b> ให้รับเฉพาะ <b>รูปภาพ</b></li>
-        <li>เพิ่ม <b>ดึงข้อความออกจากรูปภาพ</b> (รูปภาพ = อินพุตคำสั่งลัด)</li>
-        <li>เพิ่ม <b>รับเนื้อหาของ URL</b> ตั้งค่าเหมือนข้างบน แต่ <code>text</code> = <i>ข้อความ</i> และ <code>source</code> = <code>slip</code></li>
-        <li>เพิ่ม <b>รับค่าพจนานุกรม</b> คีย์ <code>message</code> → <b>แสดงการแจ้งเตือน</b></li>
+        <li>แท็บ <b>คำสั่งลัด</b> → <b>+</b> → ตั้งชื่อ <b>บันทึกสลิป</b> → แตะ ⓘ → เปิด <b>แสดงในแผ่นงานแชร์</b></li>
+        <li>เพิ่ม <b>ดึงข้อความออกจากรูปภาพ</b></li>
+        <li>เพิ่ม <b>รับเนื้อหาของ URL</b> → วาง <b>ลิงก์สำหรับสลิป</b> → <b>POST</b> → เนื้อหาคำขอ <b>ไฟล์</b> → เลือก <b>ข้อความ</b> → แล้วเพิ่ม <b>แสดงการแจ้งเตือน</b></li>
       </ol>
-      <p class="hint">ใช้: โอนเงินเสร็จ → แชร์สลิป (หรือแชร์จากแอปรูปภาพ) → เลือก “บันทึกสลิป” ถ้าระบบอ่านไม่ครบ รายการจะขึ้นป้าย “รอตรวจ” ให้แก้ในแอป</p>
+      <p class="hint">ใช้: แชร์สลิปจากแอปธนาคารหรือแอปรูปภาพ → เลือก “บันทึกสลิป”</p>
     </details>
 
     <div class="field"><span class="lbl">นำเข้าข้อมูลจากสมุดรายจ่ายเดิม</span>
@@ -847,7 +840,7 @@ $('subForm').onsubmit=async e=>{
   finally{$('subSave').disabled=false}
 };
 
-$('gearBtn').onclick=()=>{$('capUrl').value=location.origin+'/api/capture';$('authVal').value='Bearer '+appKey;$('settingsErr').textContent='';$('sheetSettings').hidden=false};
+$('gearBtn').onclick=()=>{const base=location.origin+'/api/capture?k='+encodeURIComponent(appKey);$('smsUrl').value=base+'&source=sms';$('slipUrl').value=base+'&source=slip';$('settingsErr').textContent='';$('sheetSettings').hidden=false};
 $('importBtn').onclick=async()=>{
   let d;try{d=JSON.parse($('importBox').value)}catch(e){$('settingsErr').textContent='ข้อมูลไม่ถูกต้อง ให้คัดลอกจากปุ่ม “ส่งออกข้อมูล” ใหม่';return}
   $('importBtn').disabled=true;
