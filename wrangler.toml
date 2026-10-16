@@ -1,0 +1,8 @@
+name = "spendbook"
+main = "dist/worker.js"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "spendbook-db"
+database_id = "2b22e540-1d25-42de-8a4f-b8c45dda64ca"
