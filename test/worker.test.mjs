@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs';
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL NOT NULL, app TEXT, cat TEXT, date TEXT NOT NULL, time TEXT, note TEXT, payee TEXT, ref TEXT, source TEXT, review INTEGER DEFAULT 0, raw TEXT, sub TEXT, created_at INTEGER, kind TEXT DEFAULT 'expense', excluded INTEGER DEFAULT 0);
 CREATE TABLE subs (id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at INTEGER);
-CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT);`);
+CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE capture_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, status TEXT, detail TEXT, source TEXT, ct TEXT, len INTEGER, sample TEXT);`);
 const stmt = (sql) => {
   let args = [];
   const s = {
@@ -57,6 +58,11 @@ check('one-link capture -> plain text', one.status === 200 && oneTxt.startsWith(
 console.log('     notification shows:', oneTxt);
 const bad = await worker.fetch(new Request('https://x.test/api/capture?k=wrong', { method: 'POST', body: 'x' }), env);
 check('one-link wrong key rejected', bad.status === 401);
+
+const getm = await worker.fetch(new Request('https://x.test/api/capture?k=' + env.APP_KEY + '&source=sms'), env);
+check('GET explains to use POST', (await getm.text()).includes('POST'));
+const logs = db.prepare('SELECT status FROM capture_log').all().map((r) => r.status);
+check('captures are logged', logs.includes('saved') && logs.includes('bad_key') && logs.includes('wrong_method'), JSON.stringify(logs));
 
 const man = await call('POST', '/api/expenses', { amount: 45, app: 'เงินสด', cat: 'food', date: '2026-10-16', note: 'กาแฟ' });
 check('manual add', man.body.ok);

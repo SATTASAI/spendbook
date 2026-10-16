@@ -81,6 +81,15 @@ async function readAll(env) {
   };
 }
 
+// Every Shortcut call is logged (kept to the latest 200) so failures can be diagnosed.
+async function logCapture(env, req, url, status, detail, text = '') {
+  try {
+    await env.DB.prepare('INSERT INTO capture_log (at,status,detail,source,ct,len,sample) VALUES (?,?,?,?,?,?,?)')
+      .bind(Date.now(), status, String(detail || '').slice(0, 300), url.searchParams.get('source') || '', (req.headers.get('content-type') || '').slice(0, 80), text.length, text.slice(0, 300)).run();
+    await env.DB.prepare('DELETE FROM capture_log WHERE id <= (SELECT MAX(id) - 200 FROM capture_log)').run();
+  } catch { /* logging must never break capture */ }
+}
+
 async function capture(req, env, url) {
   let body;
   const ct = req.headers.get('content-type') || '';
@@ -92,7 +101,12 @@ async function capture(req, env, url) {
   // a Shortcut that posts the raw text gets a plain sentence back, ready for "Show Notification"
   const json = isJson ? jsonResp : (d) => new Response(d.message || d.error || '', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
   const p = parseCapture(text, source, { app: body.app || body.sender || '' });
+  if (!text.trim()) {
+    await logCapture(env, req, url, 'empty', 'no text in body', text);
+    return json({ ok: true, status: 'skipped', message: 'ไม่ได้รับข้อความ: ตรวจว่า Request Body เป็น File และเลือกตัวแปรถูกตัว' });
+  }
   if (p.kind !== 'expense' && p.kind !== 'income') {
+    await logCapture(env, req, url, 'skipped', p.reason, text);
     return json({ ok: true, status: 'skipped', message: `ไม่บันทึก: ${p.reason}` });
   }
   const cand = { ...p, source, raw: text };
@@ -112,9 +126,11 @@ async function capture(req, env, url) {
       await env.DB.prepare(`UPDATE expenses SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
         .bind(...keys.map((k) => patch[k]), dup.id).run();
     }
+    await logCapture(env, req, url, 'duplicate', dup.id, text);
     return json({ ok: true, status: 'duplicate', id: dup.id, message: `มีอยู่แล้ว ฿${fmt(p.amount)}${keys.length ? ' (เติมรายละเอียดให้)' : ''}` });
   }
   const saved = await insertExpense(env, cleanExpense({ ...cand, review: p.review }));
+  await logCapture(env, req, url, 'saved', `${saved.kind} ${saved.amount}`, text);
   const head = saved.kind === 'income' ? `รายรับ +฿${fmt(saved.amount)}` : `บันทึก ฿${fmt(saved.amount)}`;
   return json({
     ok: true, status: 'saved', id: saved.id, kind: saved.kind,
@@ -127,6 +143,10 @@ async function api(req, env, url) {
   const m = req.method;
   if (path === '/data' && m === 'GET') return json(await readAll(env));
   if (path === '/capture' && m === 'POST') return capture(req, env, url);
+  if (path === '/capture') {
+    await logCapture(env, req, url, 'wrong_method', m);
+    return new Response('คำสั่งลัดยังตั้ง Method เป็น ' + m + ' อยู่ ให้เปลี่ยนเป็น POST', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
 
   if (path === '/expenses' && m === 'POST') {
     const saved = await insertExpense(env, cleanExpense(await req.json()));
@@ -207,7 +227,13 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         if (!env.DB) return json({ ok: false, error: 'ยังไม่ได้เชื่อมฐานข้อมูล (D1 binding ชื่อ DB)' }, 500);
         if (!env.APP_KEY) return json({ ok: false, error: 'ยังไม่ได้ตั้งรหัสแอป (APP_KEY)' }, 500);
-        if (!authed(req, env, url)) return json({ ok: false, error: 'รหัสแอปไม่ถูกต้อง' }, 401);
+        if (!authed(req, env, url)) {
+          if (url.pathname === '/api/capture') {
+            await logCapture(env, req, url, 'bad_key', `key length ${(url.searchParams.get('k') || '').length}`);
+            return new Response('รหัสแอปในลิงก์ไม่ถูกต้อง ให้คัดลอกลิงก์ใหม่จากหน้า ⚙︎ ในแอป', { status: 401, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+          }
+          return json({ ok: false, error: 'รหัสแอปไม่ถูกต้อง' }, 401);
+        }
         return await api(req, env, url);
       }
       if (url.pathname === '/manifest.webmanifest') {
