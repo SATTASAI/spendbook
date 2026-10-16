@@ -3,6 +3,9 @@ import APP_HTML from './app.html';
 import { ICON_192, ICON_512 } from './icons.js';
 
 const CATS = ['food', 'travel', 'shop', 'bill', 'fun', 'health', 'edu', 'family', 'other'];
+const INCOME_CATS = ['salary', 'sale', 'gift', 'refund', 'interest', 'income_other'];
+const CAT_TH = { food: 'อาหาร', travel: 'เดินทาง', shop: 'ช้อปปิ้ง', bill: 'บิล', fun: 'บันเทิง', health: 'สุขภาพ', edu: 'การศึกษา', family: 'ครอบครัว', other: 'อื่นๆ',
+  salary: 'เงินเดือน', sale: 'ขายของ', gift: 'คนโอนให้', refund: 'เงินคืน', interest: 'ดอกเบี้ย', income_other: 'รายรับอื่นๆ' };
 const jsonResp = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -25,10 +28,14 @@ function cleanExpense(b) {
   const amount = Math.round(Number(b.amount) * 100) / 100;
   if (!(amount > 0 && amount < 10_000_000)) throw new Error('จำนวนเงินไม่ถูกต้อง');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.date || ''))) throw new Error('วันที่ไม่ถูกต้อง');
+  const kind = b.kind === 'income' ? 'income' : 'expense';
+  const cats = kind === 'income' ? INCOME_CATS : CATS;
   return {
+    kind,
+    excluded: b.excluded ? 1 : 0,
     amount,
     app: String(b.app || 'ไม่ระบุ').slice(0, 40),
-    cat: CATS.includes(b.cat) ? b.cat : 'other',
+    cat: cats.includes(b.cat) ? b.cat : (kind === 'income' ? 'income_other' : 'other'),
     date: b.date,
     time: /^\d{2}:\d{2}$/.test(b.time || '') ? b.time : '',
     note: String(b.note || '').slice(0, 80),
@@ -45,8 +52,8 @@ async function insertExpense(env, e) {
   const id = crypto.randomUUID();
   const created = Date.now();
   await env.DB.prepare(
-    'INSERT INTO expenses (id,amount,app,cat,date,time,note,payee,ref,source,review,raw,sub,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).bind(id, e.amount, e.app, e.cat, e.date, e.time, e.note, e.payee, e.ref, e.source, e.review, e.raw, e.sub, created).run();
+    'INSERT INTO expenses (id,amount,app,cat,date,time,note,payee,ref,source,review,raw,sub,created_at,kind,excluded) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).bind(id, e.amount, e.app, e.cat, e.date, e.time, e.note, e.payee, e.ref, e.source, e.review, e.raw, e.sub, created, e.kind, e.excluded).run();
   return { id, ...e, createdAt: created };
 }
 
@@ -55,6 +62,7 @@ function rowToItem(r) {
     id: r.id, amount: r.amount, app: r.app, cat: r.cat, date: r.date, time: r.time || '',
     note: r.note || '', payee: r.payee || '', ref: r.ref || '', source: r.source || '',
     review: !!r.review, raw: r.raw || '', sub: r.sub || '', createdAt: r.created_at,
+    kind: r.kind === 'income' ? 'income' : 'expense', excluded: !!r.excluded,
   };
 }
 
@@ -84,13 +92,12 @@ async function capture(req, env, url) {
   // a Shortcut that posts the raw text gets a plain sentence back, ready for "Show Notification"
   const json = isJson ? jsonResp : (d) => new Response(d.message || d.error || '', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
   const p = parseCapture(text, source, { app: body.app || body.sender || '' });
-  if (p.kind !== 'expense') {
-    const msg = p.kind === 'income' ? 'ไม่บันทึก: เป็นเงินเข้า' : `ไม่บันทึก: ${p.reason}`;
-    return json({ ok: true, status: 'skipped', message: msg });
+  if (p.kind !== 'expense' && p.kind !== 'income') {
+    return json({ ok: true, status: 'skipped', message: `ไม่บันทึก: ${p.reason}` });
   }
   const cand = { ...p, source, raw: text };
   // duplicate check (same transaction from SMS and slip)
-  const { results } = await env.DB.prepare('SELECT * FROM expenses WHERE amount = ? AND date = ?').bind(p.amount, p.date).all();
+  const { results } = await env.DB.prepare("SELECT * FROM expenses WHERE amount = ? AND date = ? AND COALESCE(kind,'expense') = ?").bind(p.amount, p.date, p.kind).all();
   const dup = results.map(rowToItem).find((x) => isSameTxn(x, cand));
   if (dup) {
     // fill in details the earlier capture didn't have
@@ -99,7 +106,7 @@ async function capture(req, env, url) {
     if (!dup.ref && p.ref) patch.ref = p.ref;
     if (!dup.time && p.time) patch.time = p.time;
     if ((!dup.note) && p.note) patch.note = p.note;
-    if (dup.cat === 'other' && p.cat !== 'other') patch.cat = p.cat;
+    if ((dup.cat === 'other' || dup.cat === 'gift') && p.cat !== dup.cat && p.cat !== 'other') patch.cat = p.cat;
     const keys = Object.keys(patch);
     if (keys.length) {
       await env.DB.prepare(`UPDATE expenses SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
@@ -108,10 +115,10 @@ async function capture(req, env, url) {
     return json({ ok: true, status: 'duplicate', id: dup.id, message: `มีอยู่แล้ว ฿${fmt(p.amount)}${keys.length ? ' (เติมรายละเอียดให้)' : ''}` });
   }
   const saved = await insertExpense(env, cleanExpense({ ...cand, review: p.review }));
-  const catTh = { food: 'อาหาร', travel: 'เดินทาง', shop: 'ช้อปปิ้ง', bill: 'บิล', fun: 'บันเทิง', health: 'สุขภาพ', edu: 'การศึกษา', family: 'ครอบครัว', other: 'อื่นๆ' }[saved.cat];
+  const head = saved.kind === 'income' ? `รายรับ +฿${fmt(saved.amount)}` : `บันทึก ฿${fmt(saved.amount)}`;
   return json({
-    ok: true, status: 'saved', id: saved.id,
-    message: `บันทึก ฿${fmt(saved.amount)} · ${saved.payee || saved.app} · ${catTh}${saved.review ? ' (รอตรวจ)' : ''}`,
+    ok: true, status: 'saved', id: saved.id, kind: saved.kind,
+    message: `${head} · ${saved.payee || saved.app} · ${CAT_TH[saved.cat]}${saved.review ? ' (รอตรวจ)' : ''}`,
   });
 }
 
@@ -128,8 +135,8 @@ async function api(req, env, url) {
   let mm = /^\/expenses\/([\w-]+)$/.exec(path);
   if (mm && m === 'PUT') {
     const e = cleanExpense(await req.json());
-    await env.DB.prepare('UPDATE expenses SET amount=?,app=?,cat=?,date=?,time=?,note=?,payee=?,review=? WHERE id=?')
-      .bind(e.amount, e.app, e.cat, e.date, e.time, e.note, e.payee, e.review, mm[1]).run();
+    await env.DB.prepare('UPDATE expenses SET amount=?,app=?,cat=?,date=?,time=?,note=?,payee=?,review=?,kind=?,excluded=? WHERE id=?')
+      .bind(e.amount, e.app, e.cat, e.date, e.time, e.note, e.payee, e.review, e.kind, e.excluded, mm[1]).run();
     return json({ ok: true });
   }
   if (mm && m === 'DELETE') {

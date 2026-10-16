@@ -208,6 +208,21 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
 .notice button{margin-top:6px}
 .rawtext{font-family:var(--f-num);font-size:.75rem;color:var(--muted);background:var(--bg);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow:auto}
 @media (display-mode: standalone){#installCard{display:none}}
+.flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:rgba(255,255,255,.14);border-radius:12px;padding:10px 12px}
+.flow div{display:flex;flex-direction:column;min-width:0}
+.flow span{font-size:.74rem;opacity:.85}
+.flow b{font-family:var(--f-num);font-variant-numeric:tabular-nums;font-size:.98rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:3px}
+.seg button{border:0;background:none;padding:9px;border-radius:9px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.seg button[data-kind="income"][aria-pressed="true"]{color:var(--good)}
+.tx .amt.inc{color:var(--good)}
+.tx.off{opacity:.5}
+.chk{display:flex;gap:8px;align-items:center;font-size:.88rem;color:var(--ink)}
+.chk input{width:auto}
+.chart .inc{stroke:var(--good);fill:none;stroke-width:2.5;stroke-linejoin:round}
+.chart .incdot{fill:var(--good)}
+.chart .incval{font-family:var(--f-num);fill:var(--good);font-size:11px}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 
@@ -217,7 +232,7 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
   <header>
     <div class="brand">
       <h1>สมุดรายจ่าย</h1>
-      <small>รวมรายจ่ายจากทุกแอปไว้ที่เดียว</small>
+      <small>รายรับ รายจ่าย จากทุกแอปไว้ที่เดียว</small>
     </div>
     <div class="hright">
     <div class="monthnav" role="group" aria-label="เลือกเดือน">
@@ -234,6 +249,7 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
   <section class="card summary" aria-label="สรุปเดือนนี้">
     <div class="label" id="sumLabel">ใช้จ่ายเดือนนี้</div>
     <div class="total"><small>฿</small><span id="total">0</span></div>
+    <div class="flow" id="flow"></div>
     <div class="chips" id="chips"></div>
     <div class="budget" id="budgetBox"></div>
   </section>
@@ -286,7 +302,7 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
 </div>
 
 <div class="fabs">
-  <button class="fab" id="fab"><span>+</span> เพิ่มรายจ่าย</button>
+  <button class="fab" id="fab"><span>+</span> เพิ่มรายการ</button>
 </div>
 
 <div class="overlay" id="sheetLogin" hidden>
@@ -338,12 +354,16 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
 <div class="overlay" id="sheetAdd" hidden>
   <form class="sheet" id="addForm" novalidate>
     <div class="sheet-head"><h2 id="addTitle">เพิ่มรายจ่าย</h2><button type="button" class="x" data-close aria-label="ปิด">✕</button></div>
+    <div class="seg" id="kindSeg" role="group" aria-label="ชนิดรายการ">
+      <button type="button" data-kind="expense" aria-pressed="true">รายจ่าย</button>
+      <button type="button" data-kind="income" aria-pressed="false">รายรับ</button>
+    </div>
     <div class="field">
       <label for="fAmount">จำนวนเงิน (บาท)</label>
       <input id="fAmount" class="amount-in" inputmode="decimal" placeholder="0.00" autocomplete="off">
     </div>
     <div class="field">
-      <span class="lbl">จ่ายผ่านแอป</span>
+      <span class="lbl" id="appLbl">จ่ายผ่านแอป</span>
       <div class="pills" id="appPills"></div>
       <input id="fApp" placeholder="หรือพิมพ์ชื่อแอปอื่น" autocomplete="off">
     </div>
@@ -355,6 +375,7 @@ textarea{font:inherit;font-size:.85rem;color:var(--ink);background:var(--bg);bor
       <div class="field"><label for="fDate">วันที่</label><input id="fDate" type="date"></div>
       <div class="field"><label for="fNote">บันทึก</label><input id="fNote" placeholder="เช่น ข้าวกลางวัน" autocomplete="off"></div>
     </div>
+    <label class="chk" id="exclField" hidden><input type="checkbox" id="fExcl"> ไม่นับรายการนี้ (โอนระหว่างบัญชีตัวเอง)</label>
     <div class="field" id="rawField" hidden><span class="lbl">ข้อความต้นฉบับ</span><div class="rawtext" id="rawText"></div></div>
     <div class="formerr" id="formErr"></div>
     <button class="primary" type="submit" id="saveBtn">บันทึก</button>
@@ -415,7 +436,15 @@ const CATS=[
   {id:'family',name:'ครอบครัว',icon:'🏠',c:'--c-family'},
   {id:'other',name:'อื่นๆ',icon:'•',c:'--c-other'}
 ];
-const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
+const INCOME_CATS=[
+  {id:'salary',name:'เงินเดือน',icon:'💼',c:'--good'},
+  {id:'sale',name:'ขายของ',icon:'🏷️',c:'--good'},
+  {id:'gift',name:'คนโอนให้',icon:'🤝',c:'--good'},
+  {id:'refund',name:'เงินคืน',icon:'↩️',c:'--good'},
+  {id:'interest',name:'ดอกเบี้ย',icon:'🏦',c:'--good'},
+  {id:'income_other',name:'รายรับอื่นๆ',icon:'＋',c:'--good'}
+];
+const CAT=Object.fromEntries([...CATS,...INCOME_CATS].map(c=>[c.id,c]));
 const APPS=['K PLUS','SCB EASY','Krungthai NEXT','เป๋าตัง','TrueMoney','ShopeePay','LINE MAN','Grab','บัตรเครดิต','เงินสด'];
 /* store pages: on a phone with the app installed, the store page shows an "Open/เปิด" button */
 const APP_LINKS={
@@ -540,14 +569,18 @@ async function saveSettings(next){await api('/settings',{method:'PUT',body:next}
 /* ---------- render ---------- */
 function sumBy(arr,key){const m={};for(const x of arr){m[x[key]]=(m[x[key]]||0)+x.amount}return Object.entries(m).sort((a,b)=>b[1]-a[1])}
 function total(arr){return arr.reduce((s,x)=>s+x.amount,0)}
-function inMonth(key){return data().filter(x=>x.date&&x.date.startsWith(key))}
+const isExp=x=>x.kind!=='income'&&!x.excluded;
+const isInc=x=>x.kind==='income'&&!x.excluded;
+function allInMonth(key){return data().filter(x=>x.date&&x.date.startsWith(key))}
+function inMonth(key){return allInMonth(key).filter(isExp)}
+function incomeInMonth(key){return allInMonth(key).filter(isInc)}
 
 function render(){
   $('monthLabel').textContent=monthName(month);
   $('nextM').disabled=month>=curMonthKey;
   if(loaded&&items.length===0){
     if(!$('notice').dataset.kind||$('notice').dataset.kind==='ex'){
-      showNotice('','เริ่มบันทึกรายจ่ายของคุณ','ตั้งคำสั่งลัดใน iPhone ให้ส่ง SMS ธนาคารและสลิปเข้ามา หรือกด “เพิ่มรายจ่าย”');$('notice').dataset.kind='ex';
+      showNotice('','เริ่มบันทึกรายรับรายจ่ายของคุณ','ตั้งคำสั่งลัดใน iPhone ให้ส่ง SMS ธนาคารและสลิปเข้ามา หรือกด “เพิ่มรายการ”');$('notice').dataset.kind='ex';
     }
   }else if($('notice').dataset.kind==='ex'){$('notice').hidden=true;$('notice').dataset.kind=''}
   const nRev=items.filter(x=>x.review).length;
@@ -569,6 +602,8 @@ function render(){
   if(t>0)chips.push(`เฉลี่ย ฿${fmt(Math.round(t/days))}/วัน`);
   chips.push(`${cur.length} รายการ`);
   $('chips').innerHTML=chips.map(c=>`<span class="chip">${c}</span>`).join('');
+  const inc=total(incomeInMonth(month)), net=inc-t;
+  $('flow').innerHTML=`<div><span>รายรับ</span><b>+฿${fmt(inc)}</b></div><div><span>รายจ่าย</span><b>−฿${fmt(t)}</b></div><div><span>คงเหลือ</span><b>${net<0?'−':''}฿${fmt(Math.abs(net))}</b></div>`;
 
   const b=Number(settings.budget)||0;
   if(b>0){
@@ -580,7 +615,7 @@ function render(){
       <div class="budget-row"><span style="opacity:.85">${proj.replace(/^ · /,'')}</span><button class="linkbtn" data-budget>แก้งบ</button></div>`;
   }else{$('budgetBox').innerHTML=`<div><button class="linkbtn" data-budget>+ ตั้งงบรายเดือน</button></div>`}
 
-  renderLaunch();renderSubs();renderTrend();renderCats(cur,t);renderApps(cur,t);renderDaily(cur);renderLedger(cur);
+  renderLaunch();renderSubs();renderTrend();renderCats(cur,t);renderApps(cur,t);renderDaily(cur);renderLedger(allInMonth(month));
 }
 
 function renderLaunch(){
@@ -632,8 +667,10 @@ function renderSubs(){
 function renderTrend(){
   const keys=[];for(let i=5;i>=0;i--)keys.push(addMonths(month,-i));
   const vals=keys.map(k=>total(inMonth(k)));
+  const incs=keys.map(k=>total(incomeInMonth(k)));
+  const hasInc=incs.some(v=>v>0);
   const nonzero=vals.filter(v=>v>0);const avg=nonzero.length?nonzero.reduce((a,b)=>a+b,0)/nonzero.length:0;
-  const W=600,H=210,top=26,bot=30,left=8,right=8;const max=Math.max(...vals,avg,1)*1.08;
+  const W=600,H=210,top=26,bot=30,left=8,right=8;const max=Math.max(...vals,...incs,avg,1)*1.1;
   const bw=(W-left-right)/6;const y=v=>top+(H-top-bot)*(1-v/max);
   let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="ยอดใช้จ่าย 6 เดือนล่าสุด">`;
   s+=`<line class="grid" x1="${left}" x2="${W-right}" y1="${H-bot}" y2="${H-bot}"/>`;
@@ -643,9 +680,18 @@ function renderTrend(){
     if(vals[i]>0)s+=`<text class="val" x="${x+w/2}" y="${yy-7}" text-anchor="middle">${fmtShort(vals[i])}</text>`;
     s+=`<text x="${x+w/2}" y="${H-9}" text-anchor="middle"${k===month?' style="fill:var(--ink);font-weight:600"':''}>${monthName(k,'short')}</text></g>`});
   if(avg>0)s+=`<line class="avg" x1="${left}" x2="${W-right}" y1="${y(avg)}" y2="${y(avg)}"/>`;
+  if(hasInc){
+    const cx=i=>left+i*bw+bw/2;
+    s+=`<polyline class="inc" points="${incs.map((v,i)=>cx(i)+','+y(v)).join(' ')}"/>`;
+    incs.forEach((v,i)=>{s+=`<circle class="incdot" cx="${cx(i)}" cy="${y(v)}" r="${keys[i]===month?5:3.5}"><title>รายรับ ${monthName(keys[i],'short')}: ฿${fmt(v)}</title></circle>`});
+  }
   s+='</svg>';
   $('trend').innerHTML=s;
-  $('trendSub').textContent=avg>0?`เส้นประ = เฉลี่ย ฿${fmt(Math.round(avg))}/เดือน · แตะแท่งเพื่อดูเดือนนั้น`:'';
+  const parts=[];
+  parts.push('แท่ง = รายจ่าย');
+  if(hasInc)parts.push('เส้นเขียว = รายรับ');
+  if(avg>0)parts.push(`เส้นประ = จ่ายเฉลี่ย ฿${fmt(Math.round(avg))}/เดือน`);
+  $('trendSub').textContent=nonzero.length||hasInc?parts.join(' · '):'';
 }
 
 function renderCats(cur,t){
@@ -682,16 +728,17 @@ function renderLedger(cur){
   const fb=$('filterbar');
   if(filter){fb.hidden=false;fb.innerHTML=`กรอง: <b style="color:var(--ink)">${esc(filter.type==='review'?'รายการรอตรวจ':filter.type==='cat'?(CAT[filter.v]||CAT.other).name:filter.v)}</b> · ฿${fmt(total(list))} <button data-clearfilter>ล้างตัวกรอง</button>`}else fb.hidden=true;
   $('txCount').textContent=list.length?`${list.length} รายการ`:'';
-  if(!list.length){$('ledger').innerHTML='<div class="empty">ยังไม่มีรายการ กด “เพิ่มรายจ่าย” เพื่อเริ่มบันทึก</div>';return}
-  let html='',lastDay='';const dayTotals={};list.forEach(x=>dayTotals[x.date]=(dayTotals[x.date]||0)+x.amount);
+  if(!list.length){$('ledger').innerHTML='<div class="empty">ยังไม่มีรายการ กด “เพิ่มรายการ” เพื่อเริ่มบันทึก</div>';return}
+  let html='',lastDay='';const dayTotals={};list.forEach(x=>{if(isExp(x))dayTotals[x.date]=(dayTotals[x.date]||0)+x.amount});
   const ex=false;
   for(const x of list){
-    if(x.date!==lastDay){lastDay=x.date;html+=`<div class="ledger-day"><span>${dayLabel(x.date)}</span><span class="num">฿${fmt(dayTotals[x.date])}</span></div>`}
+    if(x.date!==lastDay){lastDay=x.date;html+=`<div class="ledger-day"><span>${dayLabel(x.date)}</span><span class="num">${dayTotals[x.date]?'จ่าย ฿'+fmt(dayTotals[x.date]):''}</span></div>`}
     const c=CAT[x.cat]||CAT.other;
-    const src=x.review?'<span class="srcchip review">รอตรวจ</span>':x.source==='sms'?'<span class="srcchip">SMS</span>':x.source==='slip'?'<span class="srcchip">สลิป</span>':'';
-    html+=`<div class="tx" data-edit="${esc(x.id)}"><span class="applogo" style="background:${appColor(x.app)}" aria-hidden="true">${esc(appInitial(x.app))}</span>
+    const offChip=x.excluded?'<span class="srcchip">ไม่นับ</span>':'';
+    const src=offChip+(x.review?'<span class="srcchip review">รอตรวจ</span>':x.source==='sms'?'<span class="srcchip">SMS</span>':x.source==='slip'?'<span class="srcchip">สลิป</span>':'');
+    html+=`<div class="tx${x.excluded?' off':''}" data-edit="${esc(x.id)}"><span class="applogo" style="background:${appColor(x.app)}" aria-hidden="true">${esc(appInitial(x.app))}</span>
       <div class="meta"><div>${c.icon} ${esc(x.note||x.payee||c.name)}</div><small>${esc(x.app)}${x.time?' · '+esc(x.time):''}${(x.note||x.payee)?' · '+esc(c.name):''}${src}</small></div>
-      <span class="amt">฿${fmt(x.amount)}</span>${ex||readOnly?'<span></span>':`<button class="del" data-del="${esc(x.id)}" aria-label="ลบรายการ">✕</button>`}</div>`;
+      <span class="amt${x.kind==='income'?' inc':''}">${x.kind==='income'?'+':''}฿${fmt(x.amount)}</span>${ex||readOnly?'<span></span>':`<button class="del" data-del="${esc(x.id)}" aria-label="ลบรายการ">✕</button>`}</div>`;
   }
   $('ledger').innerHTML=html;
 }
@@ -716,7 +763,7 @@ document.addEventListener('click',async e=>{
     pay.disabled=true;
     try{
       const st=subState(s);
-      await addExpense({amount:s.amount,app:s.app||'ไม่ระบุ',cat:s.cat||'bill',date:todayStr,note:s.name,sub:s.id,createdAt:Date.now()});
+      await addExpense({kind:'expense',amount:s.amount,app:s.app||'ไม่ระบุ',cat:s.cat||'bill',date:todayStr,note:s.name,sub:s.id,createdAt:Date.now()});
       await updateSub(s.id,{lastPaid:st.periodKey});
       toast(`ลงรายจ่าย ${s.name} ฿${fmt(s.amount)} แล้ว`);
     }catch(err){pay.disabled=false;toast('บันทึกไม่สำเร็จ ลองอีกครั้ง')}
@@ -747,11 +794,20 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.overlay').forEach(o=>{if(o.id!=='sheetLogin')o.hidden=true})});
 
-let selApp='',selCat='food';
+let selApp='',selCat='food',selKind='expense';
+function setKind(k){
+  selKind=k;
+  document.querySelectorAll('#kindSeg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.kind===k)));
+  $('appLbl').textContent=k==='income'?'เข้าบัญชี/แอป':'จ่ายผ่านแอป';
+  const ids=(k==='income'?INCOME_CATS:CATS).map(c=>c.id);
+  if(!ids.includes(selCat))selCat=k==='income'?'gift':'food';
+  buildPills();
+}
+$('kindSeg').onclick=e=>{const b=e.target.closest('[data-kind]');if(b)setKind(b.dataset.kind)};
 function buildPills(){
   const used=[...new Set(items.map(x=>x.app))].filter(a=>!APPS.includes(a));
   $('appPills').innerHTML=[...APPS,...used].map(a=>`<button type="button" class="pill" data-app="${esc(a)}" aria-pressed="${a===selApp}"><span class="dot" style="background:${appColor(a)}"></span>${esc(a)}</button>`).join('');
-  $('catPills').innerHTML=CATS.map(c=>`<button type="button" class="pill" data-cat="${c.id}" aria-pressed="${c.id===selCat}">${c.icon} ${esc(c.name)}</button>`).join('');
+  $('catPills').innerHTML=(selKind==='income'?INCOME_CATS:CATS).map(c=>`<button type="button" class="pill" data-cat="${c.id}" aria-pressed="${c.id===selCat}">${c.icon} ${esc(c.name)}</button>`).join('');
 }
 $('appPills').onclick=e=>{const p=e.target.closest('[data-app]');if(!p)return;selApp=p.dataset.app;$('fApp').value='';buildPills()};
 $('catPills').onclick=e=>{const p=e.target.closest('[data-cat]');if(!p)return;selCat=p.dataset.cat;buildPills()};
@@ -762,17 +818,18 @@ function openEdit(id){
   editingId=id;$('addForm').reset();$('formErr').textContent='';
   $('addTitle').textContent=x.review?'ตรวจรายการ':'แก้ไขรายการ';
   $('fAmount').value=x.amount;$('fDate').value=x.date;$('fNote').value=x.note||x.payee||'';
-  selApp=x.app;selCat=x.cat;buildPills();
+  selApp=x.app;selCat=x.cat;setKind(x.kind||'expense');
+  $('fExcl').checked=!!x.excluded;$('exclField').hidden=false;
   if(x.raw){$('rawText').textContent=x.raw;$('rawField').hidden=false}else $('rawField').hidden=true;
   $('saveBtn').textContent=x.review?'ยืนยันรายการนี้':'บันทึกการแก้ไข';
   $('sheetAdd').hidden=false;
 }
 $('fab').onclick=()=>{
-  editingId=null;$('addTitle').textContent='เพิ่มรายจ่าย';$('saveBtn').textContent='บันทึก';$('rawField').hidden=true;
+  editingId=null;$('addTitle').textContent='เพิ่มรายการ';$('exclField').hidden=true;$('fExcl').checked=false;$('saveBtn').textContent='บันทึก';$('rawField').hidden=true;
   $('addForm').reset();$('formErr').textContent='';
   $('fDate').value=month===curMonthKey?todayStr:`${month}-01`;
   const lastApp=items.length?items.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0].app:'';
-  selApp=lastApp||'';selCat='food';buildPills();
+  selApp=lastApp||'';selCat='food';setKind('expense');
   $('sheetAdd').hidden=false;setTimeout(()=>$('fAmount').focus(),50);
 };
 $('addForm').onsubmit=async e=>{
@@ -781,9 +838,9 @@ $('addForm').onsubmit=async e=>{
   const app=($('fApp').value.trim()||selApp);
   const date=$('fDate').value;
   if(!(amount>0)){$('formErr').textContent='ใส่จำนวนเงินมากกว่า 0';$('fAmount').focus();return}
-  if(!app){$('formErr').textContent='เลือกหรือพิมพ์ชื่อแอปที่ใช้จ่าย';return}
+  if(!app){$('formErr').textContent=selKind==='income'?'เลือกหรือพิมพ์บัญชีที่เงินเข้า':'เลือกหรือพิมพ์ชื่อแอปที่ใช้จ่าย';return}
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){$('formErr').textContent='เลือกวันที่';return}
-  const rec={amount:Math.round(amount*100)/100,app:app.slice(0,40),cat:selCat,date,note:$('fNote').value.trim().slice(0,80),createdAt:Date.now()};
+  const rec={kind:selKind,excluded:editingId?$('fExcl').checked:false,amount:Math.round(amount*100)/100,app:app.slice(0,40),cat:selCat,date,note:$('fNote').value.trim().slice(0,80),createdAt:Date.now()};
   $('saveBtn').disabled=true;
   try{
     if(editingId){

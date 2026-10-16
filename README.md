@@ -1,6 +1,6 @@
 # สมุดรายจ่าย (spendbook)
 
-แอปบันทึกรายจ่ายบน Cloudflare Worker + D1 ติดตั้งบน iPhone เป็นแอปหน้าจอโฮม
+แอปบันทึกรายรับรายจ่ายบน Cloudflare Worker + D1 ติดตั้งบน iPhone เป็นแอปหน้าจอโฮม
 รับ SMS ธนาคารและสลิปผ่านแอปคำสั่งลัด (Shortcuts)
 
 - ฐานข้อมูล `spendbook-db` สร้างไว้แล้วใน Cloudflare (มีตารางครบ)

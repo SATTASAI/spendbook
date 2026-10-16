@@ -34,6 +34,16 @@ const CAT_RULES = [
   ['fun', /netflix|spotify|youtube|disney|major|เมเจอร์|\bsf\b|cinema|โรงหนัง|steam|playstation|garena|rov/i],
 ];
 
+const INCOME_CAT_RULES = [
+  ['salary', /เงินเดือน|salary|payroll|ค่าจ้าง|เงินเดือน|ค่าตอบแทน|เบี้ยเลี้ยง|กรมบัญชีกลาง|ตกเบิก|โบนัส|bonus/i],
+  ['interest', /ดอกเบี้ย|interest|เงินปันผล|dividend/i],
+  ['refund', /คืนเงิน|refund|cash ?back|เงินคืน/i],
+];
+export function guessIncomeCat(t) {
+  for (const [id, re] of INCOME_CAT_RULES) if (re.test(t)) return id;
+  return 'gift';
+}
+
 const INCOME_RE = /เงินเข้า|รับโอน|รับเงิน|ได้รับเงิน|ฝากเงิน|เข้าบ\/?ช|เข้าบัญชี|deposit|received|incoming/i;
 const EXPENSE_RE = /เงินออก|ถอน|ออกจาก|โอนเงิน|โอนไป|ชำระ|จ่าย|หักบ|หักบัญชี|ซื้อ|ใช้จ่าย|withdraw|payment|paid|purchase|transfer(red)? to|สแกนจ่าย|เติมเงิน/i;
 const IGNORE_RE = /\bOTP\b|รหัสผ่าน|รหัส\s?OTP|ref\s?code.*otp|อย่าบอกรหัส|do not share/i;
@@ -122,7 +132,7 @@ export function findAmount(t, skipRanges = []) {
     if (m[1].includes(',')) score += 1;
     if (/^\s*(บ|บาท|thb|฿)/i.test(after)) score += 4;
     if (/(฿|thb)\s*$/i.test(before)) score += 4;
-    if (/(จำนวน(เงิน)?|ยอด(เงิน|ชำระ|โอน)?|amount|จ่าย|ชำระ|ถอน|โอน|เงินออก|ออก)\s*[:：]?\s*$/i.test(before)) score += 4;
+    if (/(จำนวน(เงิน)?|ยอด(เงิน|ชำระ|โอน)?|amount|จ่าย|ชำระ|ถอน|โอน|เงินออก|ออก|เงินเข้า|เข้า|รับโอน|รับ|ฝาก)\s*[:：]?\s*$/i.test(before)) score += 4;
     if (/(คงเหลือ|ใช้ได้|ยอดเงินคงเหลือ|balance|avail|วงเงิน)\s*[:：]?\s*$/i.test(before)) score -= 10;
     if (/(ค่าธรรมเนียม|fee)\s*[:：]?\s*$/i.test(before)) score -= 6;
     if (/(เลขที่|รหัส|ref|อ้างอิง|no\.?)\s*[:：]?\s*$/i.test(before)) score -= 8;
@@ -137,16 +147,16 @@ export function findRef(t) {
   return m ? m[1] : '';
 }
 
-export function findPayee(t) {
+export function findPayee(t, opts = {}) {
   const lines = t.split(/\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = 0; i < lines.length; i++) {
-    const m = /^(?:ไปยัง|ไป|ถึง|ผู้รับ(?:เงิน)?|ร้าน(?:ค้า)?|to|merchant|payee)\s*[:：]?\s*(.*)$/i.exec(lines[i]);
+    const m = (opts.income ? /^(?:จาก|ผู้โอน|from)\s*[:：]?\s*(.*)$/i : /^(?:ไปยัง|ไป|ถึง|ผู้รับ(?:เงิน)?|ร้าน(?:ค้า)?|to|merchant|payee)\s*[:：]?\s*(.*)$/i).exec(lines[i]);
     if (m) {
       const v = (m[1] || lines[i + 1] || '').replace(/x{2,}[\dx-]*|[\dx]{3,}-?x+/gi, '').trim();
       if (v) return v.slice(0, 60);
     }
   }
-  const inline = /(?:ไปยัง|ผู้รับ|ร้าน|to)\s*[:：]?\s*([^\n\d]{2,40})/i.exec(t);
+  const inline = (opts.income ? /(?:จาก|ผู้โอน|from)\s*[:：]?\s*([^\n\d]{2,40})/i : /(?:ไปยัง|ผู้รับ|ร้าน|to)\s*[:：]?\s*([^\n\d]{2,40})/i).exec(t);
   return inline ? inline[1].trim().slice(0, 60) : '';
 }
 
@@ -168,8 +178,7 @@ export function parseCapture(rawText, source = 'sms', opts = {}) {
   if (source === 'sms' && IGNORE_RE.test(t)) return { kind: 'unknown', reason: 'ข้อความ OTP' };
 
   const isIncome = INCOME_RE.test(t) && !EXPENSE_RE.test(t);
-  if (isIncome) return { kind: 'income', reason: 'เป็นเงินเข้า' };
-  const looksExpense = EXPENSE_RE.test(t) || source === 'slip';
+  const looksExpense = !isIncome && (EXPENSE_RE.test(t) || source === 'slip');
 
   const d = findDate(t, now);
   const tm = findTime(t);
@@ -178,19 +187,19 @@ export function parseCapture(rawText, source = 'sms', opts = {}) {
   if (tm) skip.push([tm.index, tm.index + tm.len]);
   const amt = findAmount(t, skip);
   if (!amt) return { kind: 'unknown', reason: 'ไม่พบยอดเงิน' };
-  if (!looksExpense) return { kind: 'unknown', reason: 'ไม่แน่ใจว่าเป็นรายจ่าย', amount: amt.value };
+  if (!looksExpense && !isIncome) return { kind: 'unknown', reason: 'ไม่แน่ใจว่าเป็นรายรับหรือรายจ่าย', amount: amt.value };
 
   const today = bangkokToday(now);
   let date = d ? d.date : today;
   // a date more than 2 days in the future is a misread
   if (date > today && (new Date(date) - new Date(today)) / 864e5 > 2) date = today;
 
-  const payee = findPayee(t);
+  const payee = findPayee(t, { income: isIncome });
   const app = guessApp(t, opts.app) || (opts.app ? String(opts.app).slice(0, 40) : (source === 'slip' ? 'สลิป' : 'SMS ธนาคาร'));
-  const cat = guessCat(`${payee} ${t}`);
-  const review = !d || amt.score < 6 || !payee && source === 'slip';
+  const cat = isIncome ? guessIncomeCat(`${payee} ${t}`) : guessCat(`${payee} ${t}`);
+  const review = !d || amt.score < 6 || (!payee && source === 'slip');
   return {
-    kind: 'expense',
+    kind: isIncome ? 'income' : 'expense',
     amount: Math.round(amt.value * 100) / 100,
     date,
     time: tm ? tm.time : '',
@@ -205,6 +214,7 @@ export function parseCapture(rawText, source = 'sms', opts = {}) {
 
 // Same transaction captured twice (e.g. SMS + slip)?
 export function isSameTxn(a, b) {
+  if ((a.kind || 'expense') !== (b.kind || 'expense')) return false;
   if (a.ref && b.ref && a.ref === b.ref) return true;
   if (Number(a.amount) !== Number(b.amount) || a.date !== b.date) return false;
   if (a.time && b.time) {

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 
 const db = new DatabaseSync(':memory:');
-db.exec(`CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL NOT NULL, app TEXT, cat TEXT, date TEXT NOT NULL, time TEXT, note TEXT, payee TEXT, ref TEXT, source TEXT, review INTEGER DEFAULT 0, raw TEXT, sub TEXT, created_at INTEGER);
+db.exec(`CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL NOT NULL, app TEXT, cat TEXT, date TEXT NOT NULL, time TEXT, note TEXT, payee TEXT, ref TEXT, source TEXT, review INTEGER DEFAULT 0, raw TEXT, sub TEXT, created_at INTEGER, kind TEXT DEFAULT 'expense', excluded INTEGER DEFAULT 0);
 CREATE TABLE subs (id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at INTEGER);
 CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT);`);
 const stmt = (sql) => {
@@ -45,7 +45,8 @@ const slip = await call('POST', '/api/capture', { text: 'โอนเงิน�
 check('slip of same txn = duplicate', slip.body.status === 'duplicate', JSON.stringify(slip.body));
 console.log('     shortcut sees:', slip.body.message);
 const inc = await call('POST', '/api/capture', { text: '16/10/69 13:00 บชX123456X เงินเข้า 500.00บ', source: 'sms' });
-check('income skipped', inc.body.status === 'skipped');
+check('income saved', inc.body.status === 'saved' && inc.body.kind === 'income', JSON.stringify(inc.body));
+console.log('     shortcut sees:', inc.body.message);
 const plain = await worker.fetch(new Request('https://x.test/api/capture', { method: 'POST', headers: { authorization: 'Bearer ' + env.APP_KEY, 'content-type': 'text/plain' }, body: 'SCB เงิน 1,500.00 บ. ออกจากบ/ช x1234 วันที่ 15/10/2569@18:05 ใช้ได้ 3,210.50 บ.' }), env);
 check('plain-text capture', (await plain.text()).startsWith('บันทึก ฿1,500'));
 
@@ -60,7 +61,7 @@ check('one-link wrong key rejected', bad.status === 401);
 const man = await call('POST', '/api/expenses', { amount: 45, app: 'เงินสด', cat: 'food', date: '2026-10-16', note: 'กาแฟ' });
 check('manual add', man.body.ok);
 let data = (await call('GET', '/api/data')).body;
-check('data has 4 items', data.items.length === 4, JSON.stringify(data.items));
+check('data has 5 items', data.items.length === 5, JSON.stringify(data.items));
 const kb = data.items.find((x) => x.amount === 60);
 check('sms row enriched by slip', kb && kb.app === 'K PLUS' && kb.payee.includes('ก๋วยเตี๋ยว') && kb.cat === 'food', JSON.stringify(kb));
 
@@ -72,6 +73,10 @@ data = (await call('GET', '/api/data')).body;
 check('edit saved', data.items.some((x) => x.amount === 50 && x.note === 'กาแฟเย็น'));
 check('sub patched', data.subs[0].lastPaid === '2026-10' && data.subs[0].name === 'Netflix');
 check('budget saved', data.settings.budget === 15000);
+const incRow = data.items.find((x) => x.kind === 'income');
+await call('PUT', '/api/expenses/' + incRow.id, { ...incRow, excluded: true });
+data = (await call('GET', '/api/data')).body;
+check('mark own transfer as excluded', data.items.find((x) => x.id === incRow.id).excluded === true);
 const imp = await call('POST', '/api/import', { items: [{ amount: 99, app: 'TrueMoney', cat: 'fun', date: '2026-10-10', note: 'เกม' }, { amount: -1, date: 'x' }], subs: [], settings: { budget: 12000 } });
 check('import skips bad rows', imp.body.message === 'นำเข้า 1 รายการ และ 0 แพ็กเกจ', imp.body.message);
 await call('DELETE', '/api/expenses/' + man.body.item.id);
